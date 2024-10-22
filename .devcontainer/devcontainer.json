@@ -1,0 +1,85 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/debian
+{
+  "name": "Cqs",
+  // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm",
+  // Features to add to the dev container. More info: https://containers.dev/features.
+  "features": {
+    "ghcr.io/devcontainers/features/aws-cli:1": {
+      "version": "latest"
+    },
+    // "ghcr.io/devcontainers/features/docker-in-docker:2": {
+    //   "moby": true,
+    //   "installDockerBuildx": true,
+    //   "installDockerComposeSwitch": true,
+    //   "version": "latest",
+    //   "dockerDashComposeVersion": "latest"
+    // },
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "moby": true,
+      "installDockerBuildx": true,
+      "version": "latest",
+      "dockerDashComposeVersion": "v2"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {
+      "installDirectlyFromGitHubRelease": true,
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/java:1": {
+      "installMaven": true,
+      "version": "latest",
+      "jdkDistro": "ms",
+      "gradleVersion": "latest",
+      "mavenVersion": "latest",
+      "antVersion": "latest",
+      "groovyVersion": "latest"
+    },
+    "ghcr.io/devcontainers-contrib/features/terraform-asdf:2": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers-contrib/features/terraform-docs:1": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers-contrib/features/terraform-ls-asdf:2": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/devcontainers-contrib/features/nestjs-cli:2": {}
+  },
+
+  // Use 'forwardPorts' to make a list of ports inside the container available locally.
+  // "forwardPorts": [],
+
+  // Configure tool-specific properties.
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "DavidAnson.vscode-markdownlint",
+        "EditorConfig.EditorConfig",
+        "marp-team.marp-vscode",
+        "hediet.vscode-drawio",
+        "dsznajder.es7-react-js-snippets",
+        "cweijan.vscode-database-client2",
+        "dbaeumer.vscode-eslint",
+        "GitHub.vscode-github-actions",
+        "donjayamanne.githistory",
+        "eamodio.gitlens",
+        "jebbs.plantuml",
+        "shd101wyy.markdown-preview-enhanced"
+      ]
+    }
+  },
+  "mounts": [
+    {
+      "source": "${localEnv:HOME}${localEnv:USERPROFILE}/",
+      "target": "/key/",
+      "type": "bind"
+    }
+  ],
+
+  "postCreateCommand": "sh ./.devcontainer/create-container.sh",
+  "postStartCommand": "sh ./.devcontainer/entrypoint.sh ${containerWorkspaceFolder}"
+  // Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
+  // "remoteUser": "root"
+}
