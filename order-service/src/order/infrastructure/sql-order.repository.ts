@@ -5,6 +5,8 @@ import { OrderWriteModel } from "./order.write-model";
 import { OrderItemWriteModel } from "./order-item.write-model";
 import { InjectRepository } from "@nestjs/typeorm";
 import { EntityManager, Repository } from "typeorm";
+import { OrderReadModel } from "./order.read-model";
+import { OrderItem } from "../domain/order-item";
 
 type OrderWriteModelQuality = OrderWriteModel & {
   quantityFunction: () => number;
@@ -14,11 +16,29 @@ type OrderWriteModelQuality = OrderWriteModel & {
 export class SqlOrderRepository implements OrderRepository {
   constructor(
     @InjectRepository(OrderWriteModel)
-    private readonly orderWriteModelRepository: Repository<OrderWriteModel>
+    private readonly orderWriteModelRepository: Repository<OrderWriteModel>,
+    @InjectRepository(OrderReadModel)
+    private readonly orderReadModelRepository: Repository<OrderReadModel>,
   ) {}
 
-  findById(id: string): Promise<Order | null> {
-    throw new Error("Method not implemented.");
+  async findById(id: string): Promise<Order | null> {
+    const records = await this.orderReadModelRepository.findBy({ id });
+    return this.fromRecord(records);
+  }
+
+  private fromRecord(records: OrderReadModel[]): Order | null {
+    if (records.length === 0) {
+      return null;
+    }
+    const orderItems = records.map((record) => {
+      const id = record.orderDetailId;
+      const itemId = record.orderDetailItemId;
+      const quantity = record.orderDetailQuantity;
+      const unitPrice = record.orderDetailUnitPrice;
+      return OrderItem.restore(id, { itemId, quantity, unitPrice });
+    });
+    const { id, customerId, orderDate } = records[0];
+    return Order.restore(id, { customerId, orderDate, orderItems });
   }
 
   private async existOrder(id: string, manager: EntityManager): Promise<boolean> {

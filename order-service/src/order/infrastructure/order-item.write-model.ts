@@ -1,5 +1,4 @@
 import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from "typeorm";
-import { OrderWriteModel } from "./order.write-model";
 
 @Entity({ name: 'ORDER_ITEM', comment: '注文明細' })
 export class OrderItemWriteModel {
