@@ -1,6 +1,4 @@
 import { Column, Entity, OneToMany, PrimaryColumn } from "typeorm";
-import { OrderItemWriteModel } from "./order-item.write-model";
-
 @Entity({ name: 'ORDER', comment: '注文' })
 export class OrderWriteModel {
   @PrimaryColumn({ name: 'ID', comment: '注文ID' })

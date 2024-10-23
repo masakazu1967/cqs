@@ -5,6 +5,7 @@ import { OrderModule } from './order/order.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrderWriteModel } from './order/infrastructure/order.write-model';
 import { OrderItemWriteModel } from './order/infrastructure/order-item.write-model';
+import { OrderReadModel } from './order/infrastructure/order.read-model';
 
 @Module({
   imports: [OrderModule,
@@ -15,7 +16,7 @@ import { OrderItemWriteModel } from './order/infrastructure/order-item.write-mod
       username: 'postgres',
       password: 'postgres',
       database: 'cqs',
-      entities: [OrderWriteModel, OrderItemWriteModel],
+      entities: [OrderWriteModel, OrderItemWriteModel, OrderReadModel],
       synchronize: false,
       logging: false,
     }),

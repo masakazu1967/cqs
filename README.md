@@ -699,3 +699,248 @@ toRecordで注文と注文明細の配列を分けて配列に入れて返却し
 ```
 
 次は`OrderItemReadModel`を定義して`OrderRepository`の`findById`でレコードを取得する際にSQL関数を適用する方法について検証します。
+
+## findById
+
+今度は`SqlOrderRepository`の`findById`で注文明細の数量を取得する際にSQLの`REMOVE_ONE`関数を適用できることを検証します。
+
+`REMOVE_ONE`関数は以下のようにしてPostgreSQLに登録します。
+
+```sql
+CREATE OR REPLACE FUNCTION REMOVE_ONE(INTEGER)
+RETURNS INTEGER AS $$
+  SELECT $1 - 1;
+$$ LANGUAGE sql;
+```
+
+前回は書き込み専用のエンティティを作成しましたが、今回は読み込み専用のエンティティを作成します。
+`@Entity({name: 'ORDER'})`とすると、書き込みのエンティティと衝突するので、`@ViewEntity`を使用します。View EntityはデータベースのVIEWにマッピングされるクラスです。データベースにビューを作成してそのビューをマッピングするビューエンティティクラスを作成します。
+
+```sql
+CREATE VIEW "VIEW_ORDER" AS
+SELECT H."ID" as "H_ID",
+H."CUSTOMER_ID" as "H_CUSTOMER_ID",
+H."ORDER_DATE" as "H_ORDER_DATE",
+D."ID" AS "D_ID",
+D."ITEM_ID" AS "D_ITEM_ID",
+REMOVE_ONE(D."QUANTITY") AS "D_QUANTITY",
+D."UNIT_PRICE" AS "D_UNIT_PRICE"
+FROM "ORDER" H
+INNER JOIN "ORDER_ITEM" D ON D."ORDER_ID" = H."ID";
+```
+
+SQL文に直接`REMOVE_ONE`を適用します。
+ViewEntityには主テーブルと従属テーブルでもEntityと違い主テーブルのインスタンスに従属テーブルの配列を持って、その配列に従属テーブルのインスタンスを代入するような機能はないため、主テーブルと従属テーブルのカラムを1インスタンスとするように`ViewEntity`クラスを定義を記述します。
+
+./order/infrastructure/order.read-model.ts
+
+```ts
+@ViewEntity({
+  name: 'VIEW_ORDER',
+  expression: ''
+})
+export class OrderReadModel {
+  @ViewColumn({ name: 'H_ID' })
+  id!: string;
+
+  @ViewColumn({ name: 'H_CUSTOMER_ID' })
+  customerId!: string;
+
+  @ViewColumn({ name: 'H_ORDER_DATE' })
+  orderDate!: Date;
+
+  @ViewColumn({ name: 'D_ID' })
+  orderDetailId!: string;
+
+  @ViewColumn({ name: 'D_ITEM_ID' })
+  orderDetailItemId!: string;
+
+  @ViewColumn({ name: 'D_QUANTITY' })
+  orderDetailQuantity!: number;
+
+  @ViewColumn({ name: 'D_UNIT_PRICE' })
+  orderDetailUnitPrice!: number;
+}
+```
+
+エンティティは`VIEW_ORDER`ビューの構造をそのまま使用するため、`expression`は空文字にします。`expression`は必須項目なので削除はできないためです。
+
+この`ViewEntity`のTypeORMリポジトリを`SqlOrderRepository`のコンストラクタに注入します。
+
+./order/infrastructure/sql-order.repository.ts
+
+```ts
+export class SqlOrderRepository implements OrderRepository {
+  constructor(
+    @InjectRepository(OrderWriteModel)
+    private readonly orderWriteModelRepository: Repository<OrderWriteModel>,
+    @InjectRepository(OrderReadModel)
+    private readonly orderReadModelRepositorry: Repository<OrderReadModel>
+  ) {}
+}
+```
+
+`findById`メソッド内で`orderReadModelRepository`を利用して注文IDからレコードを取得します。
+
+./order/infrastructure/sql-order.repository.ts
+
+```ts
+async findById(id: string): Promise<Order | null> {
+  const records = await this.orderReadModelRepository.findBy({ id });
+  // ...
+}
+```
+
+検索結果のレコードは注文レコードと注文明細レコードが1つのインスタンスとして取得されます。
+検索対象の注文の注文明細が複数ある場合、1注文でも複数行が返ってくるため、`findOneBy`を使用せずに`findBy`を使用します。
+そうしないと注文明細が1行だけしか取得できません。
+
+取得したレコードをドメインの注文インスタンスに変換するための`fromRecord`メソッドを作成します。
+
+```ts
+private fromRecord(records: OrderReadModel[]): Order | null {
+  if (records.length === 0) {
+    return null;
+  }
+  const orderItems = records.map((record) => {
+    const id = record.orderDetailId;
+    const itemId = record.orderDetailItemId;
+    const quantity = record.orderDetailQuantity;
+    const unitPrice = record.orderDetailUnitPrice;
+    return OrderItem.restore(id, { itemId, quantity, unitPrice });
+  });
+  const { id, customerId, orderDate } = records[0];
+  return Order.restore(id, { customerId, orderDate, orderItems });
+}
+```
+
+取得したレコードセットから`fromRecord`を経由してドメインモデルに変換します。
+
+```ts
+async findById(id: string): Promise<Order | null> {
+  const records = await this.orderReadModelRepository.findBy({ id });
+  return this.fromRecord(records);
+}
+```
+
+コントローラが返却するDTOを定義します。
+
+./order/order.controller.ts
+
+```ts
+export class OrderItemReadDto {
+  id: string;
+  itemId: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+export class OrderReadDto {
+  id: string;
+  customerId: string;
+  orderDate: string;
+  orderItems: OrderItemReadDto[];
+};
+```
+
+ドメインモデルからコントローラが返却するモデルに変換するためのメソッドを作成します。
+
+./order/order.service.ts
+
+```ts
+export class OrderService {
+  // ..
+  private fromDomain(domain: Order): OrderReadDto {
+    const order = new OrderReadDto();
+    order.id = domain.id;
+    order.customerId = domain.customerId;
+    order.orderDate = domain.orderDate.toLocaleDateString('sv-SE');
+    order.orderItems = domain.orderItems.map((orderItem) => {
+      const dto = new OrderItemReadDto();
+      dto.id = orderItem.id;
+      dto.itemId = orderItem.itemId;
+      dto.quantity = orderItem.quantity;
+      dto.unitPrice = orderItem.unitPrice;
+      return dto;
+    });
+    return order;
+  }
+}
+```
+
+注文サービスに注文IDから注文を取得するメソッドを追加します。
+
+./order/order.service.ts
+
+```ts
+export class OrderService {
+  // ..
+  async findById(id: string): Primise<OrderReadDto | null> {
+    const order = await this.orderReapository.findById(id);
+    return order != null ? this.fromDomain(order) : null;
+  }
+}
+```
+
+注文コントローラで注文サービスを呼び出す`findById`メソッドを追加します。
+
+./order/order.controller.ts
+
+```ts
+export class OrderController {
+  @Get(':id')
+  async findById(@Param('id') id: string): Promise<OrderReadDto> {
+    const order = await this.orderService.findById(id);
+    if (order == null) {
+      throw new NotFoundException();
+    }
+    return order;
+  }
+}
+```
+
+作成した`OrderReadModel`をTypeOrmModuleを記述している２箇所に追加します。
+
+./app.module.ts
+
+```ts
+    TypeOrmModule.forRoot({
+      type: 'postgres',
+      host: '172.17.0.2',
+      port: 5432,
+      username: 'postgres',
+      password: 'postgres',
+      database: 'cqs',
+      entities: [OrderWriteModel, OrderItemWriteModel, OrderReadModel],
+      synchronize: false,
+      logging: false,
+    }),
+```
+
+./order/order.module.ts
+
+```ts
+  imports: [TypeOrmModule.forFeature([OrderWriteModel, OrderItemWriteModel, OrderReadModel])],
+```
+
+GET /order/{id} で注文が取得できます。
+注文ID 2c90a80c-53dc-4f42-9d75-4a8be6917584 が注文テーブルに存在していたので、その注文を呼び出してみます。
+
+```shell
+curl -X GET http://localhost:3000/order/2c90a80c-53dc-4f42-9d75-4a8be6917584/
+{"id":"2c90a80c-53dc-4f42-9d75-4a8be6917584","customerId":"2e1a7be-7a7f-4374-981d-71e2d1517198","orderDate":"2024-10-23","orderItems":[{"id":"0fd6ee15-1899-425b-b0c4-b411793caec8","itemId":"3eb73463-d92d-4193-b682-1a0c9547716f","quantity":1,"unitPrice":500},{"id":"45a2a226-8be1-44ed-9216-ed25a546f4d4","itemId":"d87d0eaa-75fc-4364-9c2a-cbf406d986d1","quantity":5,"unitPrice":230}]}
+```
+
+指定した注文が取得できました。
+`REMOVE_ONE`関数が適用された数量が取得できました。
+
+## 結論
+
+特定のカラムにSQL関数を適用して保存したり、SQL関数を適用して取得する場合があります。
+その様な要件の場合は、読み込みと書き込みでエンティティを分けます。ただしエンティティの属性は一致させる必要があります。エンティティを書き込んでそのエンティティを取得した場合、書き込み時と同じエンティティが復元される必要があります。
+読み込みで使用する場合はビジネスルールまたは制約で必要な条件のみ設定する様にします。
+例えば重複したエンティティを登録しないためにコードで検索して既に登録されていないかを検証するのであれば、コードで検索するメソッドは定義する必要があります。
+
+それ以外の検索の場合は、クエリサービスを使用して取得します。主にクエリサービスは一覧画面のように集約を超えたエンティティの集まりを検索する場合に作成します。
+
+SQL関数を適用する場合はコード量も増え複雑になるし、関数のビジネスロジックがコードベースにないため、コードベースに記述をし、SQL関数は使わない様にしましょう。
